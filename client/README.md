@@ -277,4 +277,5 @@ For support and questions:
 
 ---
 
-**Built with ❤️ by the BigBag Team**
+**Built with ❤️ by Osama**
+
