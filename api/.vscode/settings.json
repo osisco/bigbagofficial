@@ -1,0 +1,7 @@
+{
+  "editor.formatOnSave": true,
+  "editor.inlineSuggest.edits.allowCodeShifting": "never",
+  "editor.inlineSuggest.enabled": false,
+  "editor.inlineSuggest.edits.renderSideBySide": "never",
+  "terminal.integrated.suggest.inlineSuggestion": "off"
+}
