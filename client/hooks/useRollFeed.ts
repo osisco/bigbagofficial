@@ -1,40 +1,46 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { rollsApi, handleApiError } from '../services/api';
 import { Roll } from '../types';
+import { prefetchCache, CACHE_KEYS } from '../utils/prefetchCache';
 
 interface UseRollFeedOptions {
   category?: string;
-  pageSize?: number;
-  prefetchThreshold?: number;
+  batchSize?: number;
+  prefetchBatches?: number;
 }
 
 export const useRollFeed = ({ 
   category = 'all', 
-  pageSize = 3,
-  prefetchThreshold = 2 
+  batchSize = 10,
+  prefetchBatches = 2
 }: UseRollFeedOptions = {}) => {
   const [rolls, setRolls] = useState<Roll[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const currentIndex = useRef(0);
-  const page = useRef(0);
+  const loadedBatches = useRef(0);
+  const isLoadingBatch = useRef(false);
+  const lastCursor = useRef<string | null>(null);
 
-  const loadMore = useCallback(async (reset = false) => {
-    if (loading || (!hasMore && !reset)) return;
+  const loadBatch = useCallback(async (batchNumber: number) => {
+    if (isLoadingBatch.current) return;
     
-    setLoading(true);
+    isLoadingBatch.current = true;
     setError(null);
 
     try {
-      const currentPage = reset ? 0 : page.current;
       const params: any = {
-        page: currentPage,
-        limit: pageSize,
+        limit: batchSize,
       };
 
       if (category !== 'all') {
         params.category = category;
+      }
+
+      // Use cursor for pagination instead of page numbers
+      if (batchNumber > 0 && lastCursor.current) {
+        params.cursor = lastCursor.current;
       }
 
       const response = await rollsApi.getAll(params);
@@ -44,16 +50,19 @@ export const useRollFeed = ({
           roll && roll.id && roll.videoUrl
         );
 
-        if (reset) {
-          setRolls(newRolls);
-          page.current = 1;
-          currentIndex.current = 0;
-        } else {
-          setRolls(prev => [...prev, ...newRolls]);
-          page.current += 1;
+        setRolls(prev => {
+          // Deduplicate by ID to prevent duplicate keys
+          const existingIds = new Set(prev.map(r => r.id));
+          const uniqueNewRolls = newRolls.filter(r => r.id && !existingIds.has(r.id));
+          return [...prev, ...uniqueNewRolls];
+        });
+        setHasMore(newRolls.length === batchSize);
+        loadedBatches.current = batchNumber + 1;
+        
+        // Update cursor for next batch
+        if (newRolls.length > 0) {
+          lastCursor.current = newRolls[newRolls.length - 1].createdAt;
         }
-
-        setHasMore(newRolls.length === pageSize);
       } else {
         setError(response.message || 'Failed to load rolls');
       }
@@ -61,35 +70,90 @@ export const useRollFeed = ({
       const errorMessage = handleApiError(err);
       setError(errorMessage);
     } finally {
-      setLoading(false);
+      isLoadingBatch.current = false;
     }
-  }, [category, pageSize, loading, hasMore]);
+  }, [category, batchSize]);
+
+  const loadInitial = useCallback(async () => {
+    setLoading(true);
+    setRolls([]);
+    loadedBatches.current = 0;
+    currentIndex.current = 0;
+    lastCursor.current = null;
+    
+    // Check prefetch cache first (only for 'all' category)
+    if (category === 'all') {
+      const prefetchedRoll = prefetchCache.get(CACHE_KEYS.ROLLS_FIRST);
+      if (prefetchedRoll) {
+        // Use prefetched roll as first item
+        setRolls([prefetchedRoll]);
+        loadedBatches.current = 1;
+        if (prefetchedRoll.createdAt) {
+          lastCursor.current = prefetchedRoll.createdAt;
+        }
+        // Continue loading rest of batch
+        const remainingLimit = batchSize - 1;
+        if (remainingLimit > 0 && lastCursor.current) {
+          try {
+            const response = await rollsApi.getAll({
+              limit: remainingLimit,
+              cursor: lastCursor.current,
+            });
+            if (response.success && response.data) {
+              const newRolls = response.data.filter((roll: any) => 
+                roll && roll.id && roll.videoUrl && roll.id !== prefetchedRoll.id
+              );
+              setRolls(prev => [...prev, ...newRolls]);
+              if (newRolls.length > 0) {
+                lastCursor.current = newRolls[newRolls.length - 1].createdAt;
+              }
+              setHasMore(newRolls.length === remainingLimit);
+            }
+          } catch (err) {
+            console.warn('Error loading remaining rolls after prefetch:', err);
+          }
+        }
+        setLoading(false);
+        return;
+      }
+    }
+    
+    // No prefetch cache, load normally
+    await loadBatch(0);
+    if (prefetchBatches > 1 && lastCursor.current) {
+      // Load second batch immediately after first completes (cursor is now set)
+      await loadBatch(1);
+    }
+    
+    setLoading(false);
+  }, [loadBatch, prefetchBatches, category, batchSize]);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
     if (viewableItems && viewableItems.length > 0) {
       const visibleIndex = viewableItems[0]?.index || 0;
       currentIndex.current = visibleIndex;
       
-      // Trigger prefetch when approaching end of loaded content
-      if (visibleIndex >= rolls.length - prefetchThreshold && hasMore && !loading) {
-        loadMore();
+      // Calculate which batch user is viewing
+      const currentBatch = Math.floor(visibleIndex / batchSize);
+      const nextBatchToLoad = loadedBatches.current;
+      
+      // Load next batch when user is halfway through current loaded content
+      if (currentBatch >= nextBatchToLoad - prefetchBatches && hasMore && !isLoadingBatch.current) {
+        loadBatch(nextBatchToLoad);
       }
     }
-  }, [rolls.length, prefetchThreshold, hasMore, loading, loadMore]);
+  }, [batchSize, prefetchBatches, hasMore, loadBatch]);
 
   const refresh = useCallback(() => {
     setHasMore(true);
-    loadMore(true);
-  }, [loadMore]);
+    loadInitial();
+  }, [loadInitial]);
 
   // Reset when category changes
   useEffect(() => {
-    setRolls([]);
     setHasMore(true);
-    page.current = 0;
-    currentIndex.current = 0;
-    loadMore(true);
-  }, [category]);
+    loadInitial();
+  }, [category, loadInitial]);
 
   return {
     rolls,
@@ -98,7 +162,6 @@ export const useRollFeed = ({
     error,
     currentIndex: currentIndex.current,
     onViewableItemsChanged,
-    loadMore,
     refresh,
   };
 };

@@ -5,6 +5,7 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -18,6 +19,10 @@ import { Category } from "../../types";
 import CategoryCard from "../../components/CategoryCard";
 import { router } from "expo-router";
 import { categoriesApi, handleApiError } from "../../services/api";
+import { prefetchCache, CACHE_KEYS } from "../../utils/prefetchCache";
+
+const { width } = Dimensions.get("window");
+const CATEGORY_ITEM_WIDTH = (width - spacing.lg * 3) / 2;
 
 const CategoriesScreen: React.FC = () => {
   const colors = useColors();
@@ -41,11 +46,16 @@ const CategoriesScreen: React.FC = () => {
       color: colors.textSecondary,
     },
     listContent: {
-      paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.xl,
+      paddingHorizontal: spacing.sm,
+      paddingBottom: spacing.lg,
     },
-    row: {
-      justifyContent: 'space-around',
+    categoryRow: {
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.sm,
+    },
+    categoryItem: {
+      width: CATEGORY_ITEM_WIDTH,
+      marginBottom: spacing.md,
     },
     loadingContainer: {
       flex: 1,
@@ -78,12 +88,24 @@ const CategoriesScreen: React.FC = () => {
   const loadCategories = useCallback(async () => {
     try {
       setError(null);
+      
+      // Check prefetch cache first
+      const prefetchedCategories = prefetchCache.get(CACHE_KEYS.CATEGORIES_ALL);
+      if (prefetchedCategories && Array.isArray(prefetchedCategories)) {
+        setCategories(prefetchedCategories);
+        setIsLoading(false);
+        console.log("Categories loaded from cache:", prefetchedCategories.length);
+        return;
+      }
+
       console.log("Loading categories...");
 
       const response = await categoriesApi.getAll();
 
       if (response.success && response.data) {
         setCategories(response.data);
+        // Update cache
+        prefetchCache.set(CACHE_KEYS.CATEGORIES_ALL, response.data, 10 * 60 * 1000);
         console.log("Categories loaded successfully:", response.data.length);
       } else {
         console.error("Failed to load categories:", response.message);
@@ -108,7 +130,9 @@ const CategoriesScreen: React.FC = () => {
   };
 
   const renderCategory = ({ item }: { item: Category }) => (
-    <CategoryCard category={item} onPress={() => handleCategoryPress(item)} />
+    <View style={styles.categoryItem}>
+      <CategoryCard category={item} onPress={() => handleCategoryPress(item)} />
+    </View>
   );
 
   if (isLoading) {
@@ -148,7 +172,7 @@ const CategoriesScreen: React.FC = () => {
         keyExtractor={(item, index) => item.id || `category-${index}`}
         numColumns={2}
         contentContainerStyle={styles.listContent}
-        columnWrapperStyle={styles.row}
+        columnWrapperStyle={styles.categoryRow}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>

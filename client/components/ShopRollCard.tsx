@@ -22,7 +22,7 @@ const ShopRollCard = memo(({ roll, onPress }: ShopRollCardProps) => {
 
   const styles = StyleSheet.create({
     container: {
-      width: cardWidth,
+      width: '100%',
       backgroundColor: colors.surface,
       borderRadius: borderRadius.md,
       overflow: 'hidden',
@@ -31,7 +31,7 @@ const ShopRollCard = memo(({ roll, onPress }: ShopRollCardProps) => {
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.1,
       shadowRadius: 2,
-      marginBottom: spacing.md,
+      marginBottom: spacing.sm,
     },
     videoContainer: {
       width: '100%',
@@ -239,7 +239,7 @@ const ShopRollCard = memo(({ roll, onPress }: ShopRollCardProps) => {
               size={12} 
               color={localRoll.isSaved ? colors.primary : colors.textSecondary} 
             />
-            <Text style={styles.statText}>{formatNumber(localRoll.saves || 0)}</Text>
+            <Text style={styles.statText}>{formatNumber(localRoll.saves || localRoll.savesCount || 0)}</Text>
           </TouchableOpacity>
         </View>
 

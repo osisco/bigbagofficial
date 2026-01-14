@@ -23,7 +23,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, spacing } from "../styles/commonStyles";
 import { Roll } from "../types";
 import { router } from "expo-router";
-import { rollsApi, saveApi } from "../services/api";
+import { rollsApi } from "../services/api";
+import { useRollActions } from "../hooks/useRollActions";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -51,39 +52,94 @@ const RollCard = forwardRef<RollCardHandle, RollCardProps>(
 
 
     /** ---------- VIDEO PLAYER HOOK ---------- */
- const player = useVideoPlayer(
-  roll.videoUrl ? { uri: roll.videoUrl } : null,
-  (p) => {
-    if (!p) return;
-    p.loop = true;
-    p.muted = false;
-  }
-);
-
+    // Always create player but only load when active (better for first roll performance)
+    const player = useVideoPlayer(
+      roll.videoUrl ? { uri: roll.videoUrl } : null,
+      (p) => {
+        if (!p) return;
+        p.loop = true;
+        p.muted = false;
+      }
+    );
 
     const [isPlaying, setIsPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [lastTap, setLastTap] = useState(0);
-    const [isLiked, setIsLiked] = useState(roll.isLiked ?? false);
-    const [isSaved, setIsSaved] = useState(roll.isSaved ?? false);
-    const [likes, setLikes] = useState(roll.likes ?? 0);
-    const [saves, setSaves] = useState(roll.saves ?? 0);
-    const [isLiking, setIsLiking] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
+    const [userPaused, setUserPaused] = useState(false);
+    const [isVideoLoading, setIsVideoLoading] = useState(true);
+    const [isVideoReady, setIsVideoReady] = useState(false);
+    const rollActions = useRollActions(roll.id, {
+      isLiked: roll.isLiked ?? false,
+      isSaved: roll.isSaved ?? false,
+      likes: roll.likes ?? 0,
+      saves: roll.saves ?? 0
+    });
     const [canDelete, setCanDelete] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
+    /** ---------- Video Loading State ---------- */
+    useEffect(() => {
+      if (!player) {
+        setIsVideoLoading(false);
+        setIsVideoReady(false);
+        return;
+      }
+      
+      // Only check loading state when roll is active (optimize first roll)
+      if (!isActive) {
+        setIsVideoLoading(false);
+        setIsVideoReady(false);
+        return;
+      }
+
+      // Set initial loading state
+      setIsVideoLoading(true);
+      setIsVideoReady(false);
+
+      // Check status immediately
+      const checkStatus = () => {
+        if (player.status?.isLoaded) {
+          setIsVideoLoading(false);
+          setIsVideoReady(true);
+          return true;
+        }
+        return false;
+      };
+
+      // Check immediately
+      if (checkStatus()) return;
+
+      // Use event listeners for status changes (more efficient than polling)
+      const handleStatusChange = () => {
+        checkStatus();
+      };
+
+      const subscription = player.addListener('statusChange', handleStatusChange);
+
+      // Fallback: show video after 2 seconds for first roll (faster UI)
+      const timeout = setTimeout(() => {
+        setIsVideoLoading(false);
+        setIsVideoReady(true);
+      }, 2000);
+
+      return () => {
+        subscription?.remove();
+        clearTimeout(timeout);
+      };
+    }, [player, isActive]);
+
     /** ---------- Play / Pause controlled by parent ---------- */
     useEffect(() => {
-      if (!player) return;
+      if (!player || !isVideoReady) return;
       if (isActive) {
         player.play();
         setIsPlaying(true);
+        setUserPaused(false);
       } else {
         player.pause();
         setIsPlaying(false);
       }
-    }, [isActive, player]);
+    }, [isActive, player, isVideoReady]);
 
     /** ---------- Track progress ---------- */
     useEffect(() => {
@@ -134,9 +190,11 @@ const RollCard = forwardRef<RollCardHandle, RollCardProps>(
       if (isPlaying) {
         player.pause();
         setIsPlaying(false);
+        setUserPaused(true);
       } else {
         player.play();
         setIsPlaying(true);
+        setUserPaused(false);
       }
     };
 
@@ -144,7 +202,7 @@ const RollCard = forwardRef<RollCardHandle, RollCardProps>(
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 300;
       if (now - lastTap < DOUBLE_TAP_DELAY) {
-        handleLike();
+        rollActions.handleLike();
       } else {
         togglePlayback();
       }
@@ -152,40 +210,12 @@ const RollCard = forwardRef<RollCardHandle, RollCardProps>(
     };
 
     /** ---------- Like / Save / Share ---------- */
-    const handleLike = async () => {
-      if (isLiking) return;
-      setIsLiking(true);
-      try {
-        const res = isLiked
-          ? await rollsApi.unlike(roll.id)
-          : await rollsApi.like(roll.id);
-        if (res.success) {
-          setIsLiked(!isLiked);
-          setLikes(isLiked ? likes - 1 : likes + 1);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsLiking(false);
-      }
+    const handleLike = () => {
+      rollActions.handleLike();
     };
 
-    const handleSave = async () => {
-      if (isSaving) return;
-      setIsSaving(true);
-      try {
-        const res = isSaved
-          ? await saveApi.unsaveRoll(roll.id)
-          : await saveApi.saveRoll(roll.id);
-        if (res.success) {
-          setIsSaved(!isSaved);
-          setSaves(isSaved ? saves - 1 : saves + 1);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsSaving(false);
-      }
+    const handleSave = () => {
+      rollActions.handleSave();
     };
 
     const handleShare = async () => {
@@ -224,27 +254,35 @@ const RollCard = forwardRef<RollCardHandle, RollCardProps>(
     /** ---------- RENDER ---------- */
     return (
       <View style={[styles.container, { height: containerHeight }]}>
+        {/* VIDEO PLACEHOLDER/LOADING */}
+        {isVideoLoading && (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.backgroundAlt, justifyContent: 'center', alignItems: 'center' }]}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        )}
+
         {/* VIDEO */}
         <TouchableOpacity
           style={styles.video}
           activeOpacity={1}
           onPress={handleVideoPress}
         >
-         <VideoView
-  style={StyleSheet.absoluteFill}
-
-            player={player}
-            contentFit="cover"
-            allowsFullscreen={false}
-            allowsPictureInPicture={false}
-            requiresLinearPlayback={false}
-            showsTimecodes={false}
-            nativeControls={false}
-          />
+          {isVideoReady && (
+            <VideoView
+              style={StyleSheet.absoluteFill}
+              player={player}
+              contentFit="cover"
+              allowsFullscreen={false}
+              allowsPictureInPicture={false}
+              requiresLinearPlayback={false}
+              showsTimecodes={false}
+              nativeControls={false}
+            />
+          )}
         </TouchableOpacity>
 
         {/* PLAY BUTTON */}
-        {!isPlaying && (
+        {!isPlaying && userPaused && (
           <View style={styles.playOverlay}>
             <Ionicons name="play" size={40} color={colors.white} />
           </View>
@@ -280,10 +318,10 @@ style={[styles.overlay, { paddingBottom: spacing.lg }]}
 
             {/* RIGHT */}
             <View style={styles.actions}>
-              <Action icon={isLiked ? "heart" : "heart-outline"} count={likes} onPress={handleLike} loading={isLiking} />
-              <Action icon="chatbubble-outline" count={roll.commentsCount} onPress={() => router.push(`/roll-comments/${roll.id}`)} />
+              <Action icon={rollActions.isLiked ? "heart" : "heart-outline"} count={rollActions.likes || 0} onPress={handleLike} loading={rollActions.isLiking} />
+              <Action icon="chatbubble-outline" count={roll.commentsCount || 0} onPress={() => router.push(`/roll-comments/${roll.id}`)} />
               <Action icon="share-outline" onPress={handleShare} />
-              <Action icon={isSaved ? "bookmark" : "bookmark-outline"} count={saves} onPress={handleSave} loading={isSaving} />
+              <Action icon={rollActions.isSaved ? "bookmark" : "bookmark-outline"} count={rollActions.saves || 0} onPress={handleSave} loading={rollActions.isSaving} />
               {canDelete && (
                 <Action 
                   icon="trash-outline" 

@@ -42,59 +42,6 @@ const sendErrorToParent = (level: string, message: string, data: any) => {
   }
 };
 
-// Function to extract meaningful source location from stack trace
-const extractSourceLocation = (stack: string): string => {
-  if (!stack) return '';
-
-  // Look for various patterns in the stack trace
-  const patterns = [
-    // Pattern for app files: app/filename.tsx:line:column
-    /at .+\/(app\/[^:)]+):(\d+):(\d+)/,
-    // Pattern for components: components/filename.tsx:line:column
-    /at .+\/(components\/[^:)]+):(\d+):(\d+)/,
-    // Pattern for any .tsx/.ts files
-    /at .+\/([^/]+\.tsx?):(\d+):(\d+)/,
-    // Pattern for bundle files with source maps
-    /at .+\/([^/]+\.bundle[^:]*):(\d+):(\d+)/,
-    // Pattern for any JavaScript file
-    /at .+\/([^/\s:)]+\.[jt]sx?):(\d+):(\d+)/
-  ];
-
-  for (const pattern of patterns) {
-    const match = stack.match(pattern);
-    if (match) {
-      return ` | Source: ${match[1]}:${match[2]}:${match[3]}`;
-    }
-  }
-
-  // If no specific pattern matches, try to find any file reference
-  const fileMatch = stack.match(/at .+\/([^/\s:)]+\.[jt]sx?):(\d+)/);
-  if (fileMatch) {
-    return ` | Source: ${fileMatch[1]}:${fileMatch[2]}`;
-  }
-
-  return '';
-};
-
-// Function to get caller information from stack trace
-const getCallerInfo = (): string => {
-  const stack = new Error().stack || '';
-  const lines = stack.split('\n');
-
-  // Skip the first few lines (Error, getCallerInfo, console override)
-  for (let i = 3; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.indexOf('app/') !== -1 || line.indexOf('components/') !== -1 || line.indexOf('.tsx') !== -1 || line.indexOf('.ts') !== -1) {
-      const match = line.match(/at .+\/([^/\s:)]+\.[jt]sx?):(\d+):(\d+)/);
-      if (match) {
-        return ` | Called from: ${match[1]}:${match[2]}:${match[3]}`;
-      }
-    }
-  }
-
-  return '';
-};
-
 export const setupErrorLogging = () => {
   // Capture unhandled errors in web environment
   if (typeof window !== 'undefined') {
@@ -128,64 +75,6 @@ export const setupErrorLogging = () => {
       });
     }
   }
-
-  // Store original console methods
-  const originalConsoleError = console.error;
-  const originalConsoleWarn = console.warn;
-  const originalConsoleLog = console.log;
-
-  // UNCOMMENT BELOW CODE TO GET MORE SENSITIVE ERROR LOGGING (usually many errors triggered per 1 uncaught runtime error)
-
-  // Override console.error to capture more detailed information
-  // console.error = (...args: any[]) => {
-  //   const stack = new Error().stack || '';
-  //   const sourceInfo = extractSourceLocation(stack);
-  //   const callerInfo = getCallerInfo();
-
-  //   // Create enhanced message with source information
-  //   const enhancedMessage = args.join(' ') + sourceInfo + callerInfo;
-
-  //   // Add timestamp and make it stand out in Metro logs
-  //   originalConsoleError('🔥🔥🔥 ERROR:', new Date().toISOString(), enhancedMessage);
-
-  //   // Also send to parent
-  //   sendErrorToParent('error', 'Console Error', enhancedMessage);
-  // };
-
-  // Override console.warn to capture warnings with source location
-  // console.warn = (...args: any[]) => {
-  //   const stack = new Error().stack || '';
-  //   const sourceInfo = extractSourceLocation(stack);
-  //   const callerInfo = getCallerInfo();
-
-  //   // Create enhanced message with source information
-  //   const enhancedMessage = args.join(' ') + sourceInfo + callerInfo;
-
-  //   originalConsoleWarn('⚠️ WARNING:', new Date().toISOString(), enhancedMessage);
-
-  //   // Also send to parent
-  //   sendErrorToParent('warn', 'Console Warning', enhancedMessage);
-  // };
-
-  // // Also override console.log to catch any logs that might contain error information
-  // console.log = (...args: any[]) => {
-  //   const message = args.join(' ');
-
-  //   // Check if this log message contains warning/error keywords
-  //   if (message.indexOf('deprecated') !== -1 || message.indexOf('warning') !== -1 || message.indexOf('error') !== -1) {
-  //     const stack = new Error().stack || '';
-  //     const sourceInfo = extractSourceLocation(stack);
-  //     const callerInfo = getCallerInfo();
-
-  //     const enhancedMessage = message + sourceInfo + callerInfo;
-
-  //     originalConsoleLog('📝 LOG (potential issue):', new Date().toISOString(), enhancedMessage);
-  //     sendErrorToParent('info', 'Console Log (potential issue)', enhancedMessage);
-  //   } else {
-  //     // Normal log, just pass through
-  //     originalConsoleLog(...args);
-  //   }
-  // };
 
   // Try to intercept React Native warnings at a lower level
   if (typeof window !== 'undefined' && (window as any).__DEV__) {

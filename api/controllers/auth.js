@@ -1,45 +1,139 @@
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
+import EmailVerification from "../models/EmailVerification.js";
 import jwt from "jsonwebtoken";
 import { API_CONFIG } from "../config/constants.js";
+import { sendVerificationEmail } from "../services/emailService.js";
+
+// Generate 6-digit verification code
+const generateVerificationCode = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+export const sendVerificationCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists with this email",
+      });
+    }
+
+    // Generate verification code
+    const code = generateVerificationCode();
+
+    // Save verification code
+    await EmailVerification.findOneAndUpdate(
+      { email },
+      { code, expiresAt: new Date(Date.now() + 10 * 60 * 1000), isUsed: false },
+      { upsert: true, new: true }
+    );
+
+    // Send email
+    try {
+      await sendVerificationEmail(email, code);
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send verification email. Please try again.",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Verification code sent to your email",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
 
 export const signUp = async (req, res) => {
   try {
-    const existingUser = await User.findOne({ email: req.body.email });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+    const { email, verificationCode, ...userData } = req.body;
+
+    if (!verificationCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Verification code is required",
+      });
     }
 
-    const hashedPassword = await bcrypt.hash(req.body.password, 10);
+    // Verify the code
+    const verification = await EmailVerification.findOne({
+      email,
+      code: verificationCode,
+      isUsed: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!verification) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired verification code",
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "User already exists",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(userData.password, 10);
 
     const newUser = new User({
-      name: req.body.name,
-      role: req.body.role,
+      ...userData,
+      email,
       password: hashedPassword,
-      age: req.body.age,
-      gender: req.body.gender,
-      city: req.body.city,
-      country: req.body.country,
-      language: req.body.language,
-      email: req.body.email,
       createdAt: Date.now(),
-      availableRolls:
-        API_CONFIG.ROLL_ALLOCATION[req.body.role.toUpperCase()] || 0,
+      availableRolls: API_CONFIG.ROLL_ALLOCATION[userData.role.toUpperCase()] || 0,
       totalShares: 0,
     });
 
     const savedUser = await newUser.save();
 
+    // Mark verification code as used
+    verification.isUsed = true;
+    await verification.save();
+
     const token = jwt.sign(
       { id: savedUser._id, role: savedUser.role },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: "7d" }
     );
 
-    return res.status(201).json({ token, user: savedUser });
+    return res.status(201).json({
+      success: true,
+      token,
+      user: savedUser,
+      message: "Account created successfully",
+    });
   } catch (error) {
     console.error(error);
-    return res.status(500).json("server error");
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 

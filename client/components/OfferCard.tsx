@@ -53,6 +53,7 @@ export default function OfferCard({ offer, onPress, onDelete, shopOwnerId }: Off
       shadowRadius: 4,
       elevation: 3,
       width: 220,
+      alignSelf: 'center',
     },
     expiredContainer: {
       opacity: 0.6,

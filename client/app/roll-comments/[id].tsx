@@ -343,7 +343,7 @@ export default function ReelCommentsScreen() {
           <FlatList
             data={comments}
             renderItem={renderComment}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item, index) => item.id || `comment-${index}`}
             style={styles.commentsList}
             showsVerticalScrollIndicator={false}
           />

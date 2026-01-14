@@ -7,8 +7,13 @@ class LRUCache {
 
   get(key) {
     if (this.cache.has(key)) {
-      // Move to end (most recently used)
       const value = this.cache.get(key);
+      // Check if expired
+      if (Date.now() > value.expiry) {
+        this.cache.delete(key);
+        return null;
+      }
+      // Move to end (most recently used)
       this.cache.delete(key);
       this.cache.set(key, value);
       return value.data;

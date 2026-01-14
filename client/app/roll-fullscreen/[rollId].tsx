@@ -258,10 +258,10 @@ export default function RollFullscreenScreen() {
           </View>
 
           <View style={styles.actions}>
-            <Action icon={isLiked ? "heart" : "heart-outline"} count={likes} onPress={handleLike} loading={isLiking} />
-            <Action icon="chatbubble-outline" count={roll.commentsCount} onPress={() => router.push(`/roll-comments/${roll.id}`)} />
+            <Action icon={isLiked ? "heart" : "heart-outline"} count={likes || 0} onPress={handleLike} loading={isLiking} />
+            <Action icon="chatbubble-outline" count={roll.commentsCount || 0} onPress={() => router.push(`/roll-comments/${roll.id}`)} />
             <Action icon="share-outline" onPress={handleShare} />
-            <Action icon={isSaved ? "bookmark" : "bookmark-outline"} count={saves} onPress={handleSave} loading={isSaving} />
+            <Action icon={isSaved ? "bookmark" : "bookmark-outline"} count={saves || 0} onPress={handleSave} loading={isSaving} />
           </View>
         </View>
       </LinearGradient>

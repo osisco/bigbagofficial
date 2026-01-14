@@ -1,10 +1,14 @@
 
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import React, { memo, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, useCommonStyles, spacing, typography, borderRadius } from '../styles/commonStyles';
 import { Shop } from '../types';
 import { useFavorites } from '../hooks/useFavorites';
+import { useCountry } from '../hooks/useCountry';
+import { useAuth } from '../hooks/useAuth';
+import { shopsApi } from '../services/api';
+import { COUNTRIES } from '../constants/countries';
 
 interface ShopCardProps {
   shop: Shop;
@@ -12,10 +16,12 @@ interface ShopCardProps {
   showCountries?: boolean;
 }
 
-export default function ShopCard({ shop, onPress, showCountries = true }: ShopCardProps) {
+const ShopCard = memo(function ShopCard({ shop, onPress, showCountries = true }: ShopCardProps) {
   const colors = useColors();
   const commonStyles = useCommonStyles();
   const { isFavorite, toggleFavorite } = useFavorites();
+  const { selectedCountry } = useCountry();
+  const { user } = useAuth();
 
   const styles = StyleSheet.create({
     container: {
@@ -48,6 +54,11 @@ export default function ShopCard({ shop, onPress, showCountries = true }: ShopCa
       position: 'absolute',
       top: spacing.sm,
       right: spacing.sm,
+    },
+    shareButton: {
+      position: 'absolute',
+      top: spacing.sm,
+      right: spacing.xl + spacing.md,
     },
     favoriteButtonBg: {
       backgroundColor: colors.surface,
@@ -104,10 +115,34 @@ export default function ShopCard({ shop, onPress, showCountries = true }: ShopCa
     },
   });
 
-  const handleFavoritePress = (e: any) => {
+  const handleFavoritePress = useCallback((e: any) => {
     e.stopPropagation();
     toggleFavorite(shop.id);
-  };
+  }, [shop.id, toggleFavorite]);
+
+  const handleSharePress = useCallback(async (e: any) => {
+    e.stopPropagation();
+    try {
+      // If user is authenticated, backend will use their account country automatically
+      // Only send country for guest users
+      let countryToSend = null;
+      
+      if (!user && selectedCountry) {
+        // For guest users, send selectedCountry code
+        countryToSend = selectedCountry;
+      }
+      // For authenticated users, don't send country - backend uses account country
+      
+      await shopsApi.share(shop.id, countryToSend);
+      const link = `https://bigbag.app/shop/${shop.id}`;
+      await Share.share({
+        message: `Check out ${shop.name} on BigBag! ${shop.description} ${link}`,
+        url: link,
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  }, [shop.id, shop.name, shop.description, user, selectedCountry]);
 
   const renderStars = (rating: number) => {
     const stars = [];
@@ -140,6 +175,11 @@ export default function ShopCard({ shop, onPress, showCountries = true }: ShopCa
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.imageContainer}>
         <Image source={{ uri: shop.logo }} style={styles.logo} />
+        <TouchableOpacity style={styles.shareButton} onPress={handleSharePress}>
+          <View style={styles.favoriteButtonBg}>
+            <Ionicons name="share-outline" size={18} color={colors.text} />
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.favoriteButton} onPress={handleFavoritePress}>
           <View style={styles.favoriteButtonBg}>
             <Ionicons 
@@ -174,4 +214,6 @@ export default function ShopCard({ shop, onPress, showCountries = true }: ShopCa
       </View>
     </TouchableOpacity>
   );
-}
+});
+
+export default ShopCard;

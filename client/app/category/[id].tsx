@@ -46,6 +46,10 @@ const CategoryScreen: React.FC = () => {
     row: {
       justifyContent: 'space-between',
     },
+    shopCardWrapper: {
+      flex: 1,
+      marginHorizontal: spacing.xs,
+    },
     emptyState: {
       flex: 1,
       justifyContent: 'center',
@@ -143,7 +147,9 @@ const CategoryScreen: React.FC = () => {
   };
 
   const renderShop = ({ item }: { item: Shop }) => (
-    <ShopCard shop={item} onPress={() => handleShopPress(item)} />
+    <View style={styles.shopCardWrapper}>
+      <ShopCard shop={item} onPress={() => handleShopPress(item)} />
+    </View>
   );
 
   const renderEmptyState = () => (
@@ -204,7 +210,7 @@ const CategoryScreen: React.FC = () => {
       <FlatList
         data={shops}
         renderItem={renderShop}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id || `shop-${index}`}
         numColumns={2}
         columnWrapperStyle={shops.length > 1 ? styles.row : undefined}
         contentContainerStyle={styles.listContent}

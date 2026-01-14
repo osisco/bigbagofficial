@@ -3,7 +3,7 @@ export const API_CONFIG = {
   // Server Configuration
   PORT: Number(process.env.PORT) || 5050,
   UPLOAD_LIMIT: process.env.UPLOAD_LIMIT || "50mb",
-  CORS_ORIGIN: process.env.CORS_ORIGIN || "*",
+  CORS_ORIGIN: process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : "*"),
   
   // Database Limits
   DEFAULT_LIMIT: 50,

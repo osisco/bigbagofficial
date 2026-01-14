@@ -33,6 +33,7 @@ import {
   handleApiError,
 } from "../../services/api";
 import { useProgressiveLoading } from "../../hooks/useProgressiveLoading";
+import { useTabPrefetch, prefetchCategoriesAfterHome } from "../../hooks/useTabPrefetch";
 
 const { width } = Dimensions.get("window");
 const CATEGORY_ITEM_WIDTH = (width - spacing.lg * 3) / 2;
@@ -158,6 +159,23 @@ const HomeScreen: React.FC = () => {
   const { loadingStates, setLoading, resetLoading, isAllLoaded } = useProgressiveLoading([
     'coupons', 'offers', 'categories'
   ]);
+
+  // Prefetch inactive tabs after initial render
+  useTabPrefetch({
+    delay: 1000, // Wait 1 second after mount to not block initial render
+    enabled: true,
+  });
+
+  // Prefetch categories after home page finishes loading and first roll is prefetched
+  useEffect(() => {
+    if (isAllLoaded) {
+      // Small delay to ensure home page is fully rendered
+      const timeoutId = setTimeout(() => {
+        prefetchCategoriesAfterHome();
+      }, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isAllLoaded]);
 
   const loadCoupons = useCallback(async () => {
     try {

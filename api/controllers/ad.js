@@ -119,22 +119,6 @@ export const getAllAds = async (req, res) => {
 // Create new ad (Admin only)
 export const createAd = async (req, res) => {
   try {
-    console.log("=== AD CREATION REQUEST ===");
-    console.log("Request body:", req.body);
-    console.log(
-      "Request file:",
-      req.file
-        ? {
-            fieldname: req.file.fieldname,
-            originalname: req.file.originalname,
-            mimetype: req.file.mimetype,
-            size: req.file.size,
-            path: req.file.path,
-          }
-        : "NO FILE",
-    );
-    console.log("User:", req.user?.id, req.user?.role);
-
     const { title, linkType, linkUrl, shopId, priority } = req.body;
 
     if (!title) {
@@ -149,24 +133,18 @@ export const createAd = async (req, res) => {
     // Handle image upload to Cloudinary
     if (req.file) {
       try {
-        console.log("Uploading ad image to Cloudinary:", req.file.path);
-        console.log("File details:", {
-          name: req.file.filename,
-          size: req.file.size,
-          mimetype: req.file.mimetype,
-        });
         const uploadResult = await cloudinary.uploader.upload(req.file.path, {
           resource_type: "image",
           folder: "ads",
           quality: "auto",
         });
-        console.log("Cloudinary upload successful:", uploadResult.secure_url);
+       
         imageUrl = uploadResult.secure_url;
 
         // Clean up local file
         if (fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
-          console.log("Local file cleaned up:", req.file.path);
+       
         }
       } catch (uploadError) {
         console.error("Cloudinary upload error:", uploadError);

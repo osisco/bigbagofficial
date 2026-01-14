@@ -9,6 +9,7 @@ import { useColors, useCommonStyles, spacing, typography,  borderRadius } from '
 import * as Clipboard from 'expo-clipboard';
 import { couponsApi, shopsApi, handleApiError } from '../../services/api';
 import { Coupon, Shop } from '../../types';
+import { prefetchCache, CACHE_KEYS } from '../../utils/prefetchCache';
 
 export default function CouponsScreen() {
   const colors = useColors();
@@ -114,6 +115,35 @@ export default function CouponsScreen() {
       if (!append) {
         setError(null);
         setIsLoading(true);
+        
+        // Check prefetch cache for first page
+        if (page === 1) {
+          const prefetchedCoupon = prefetchCache.get(CACHE_KEYS.COUPONS_FIRST);
+          if (prefetchedCoupon) {
+            // Use prefetched coupon immediately for instant UI
+            setCoupons([prefetchedCoupon]);
+            setIsLoading(false);
+            
+            // Load rest in background
+            const couponsResponse = await couponsApi.getAll({ page, limit: 20 });
+            if (couponsResponse.success && couponsResponse.data) {
+              // Ensure prefetched coupon is first, deduplicate
+              const otherCoupons = couponsResponse.data.filter(
+                (c: Coupon) => c.id !== prefetchedCoupon.id
+              );
+              setCoupons([prefetchedCoupon, ...otherCoupons]);
+              setHasNextPage(couponsResponse.pagination?.hasNextPage || false);
+              setCurrentPage(page);
+            }
+            
+            // Load shops in background
+            const shopsResponse = await shopsApi.getAll();
+            if (shopsResponse.success && shopsResponse.data) {
+              setShops(shopsResponse.data);
+            }
+            return;
+          }
+        }
       } else {
         setIsLoadingMore(true);
       }
@@ -125,7 +155,12 @@ export default function CouponsScreen() {
       
       if (couponsResponse.success && couponsResponse.data) {
         if (append) {
-          setCoupons(prev => [...prev, ...couponsResponse.data]);
+          // Deduplicate by ID to prevent duplicate keys
+          setCoupons(prev => {
+            const existingIds = new Set(prev.map(c => c.id));
+            const newCoupons = couponsResponse.data.filter(c => c.id && !existingIds.has(c.id));
+            return [...prev, ...newCoupons];
+          });
         } else {
           setCoupons(couponsResponse.data);
         }
@@ -270,7 +305,7 @@ export default function CouponsScreen() {
       <FlatList
         data={filteredCoupons}
         renderItem={renderCoupon}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id || `coupon-${index}`}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContainer}
         ListEmptyComponent={renderEmptyState}

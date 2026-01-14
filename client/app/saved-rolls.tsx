@@ -257,7 +257,7 @@ export default function SavedReelsScreen() {
     []
   );
 
-  const keyExtractor = useCallback((item: Roll) => `saved-roll-${item.id}`, []);
+  const keyExtractor = useCallback((item: Roll, index: number) => `saved-roll-${item.id || index}`, []);
 
   if (!isAuthenticated) {
     return (

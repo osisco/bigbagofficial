@@ -11,9 +11,10 @@ const { width: screenWidth } = Dimensions.get('window');
 
 interface ShopRollsProps {
   shopId: string;
+  nested?: boolean; // If true, render without FlatList to avoid nesting in ScrollView
 }
 
-export default function ShopRolls({ shopId }: ShopRollsProps) {
+export default function ShopRolls({ shopId, nested = false }: ShopRollsProps) {
   const colors = useColors();
   const [rolls, setRolls] = useState<Roll[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -69,8 +70,17 @@ export default function ShopRolls({ shopId }: ShopRollsProps) {
       lineHeight: 20,
     },
     rollsList: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.md,
+    },
+    nestedRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: spacing.md,
+      paddingHorizontal: spacing.xs,
+    },
+    nestedItem: {
+      width: '48%',
     },
   });
 
@@ -139,12 +149,36 @@ export default function ShopRolls({ shopId }: ShopRollsProps) {
     );
   }
 
+  // If nested in ScrollView, render items directly without FlatList
+  if (nested) {
+    const rows = [];
+    for (let i = 0; i < rolls.length; i += 2) {
+      rows.push(
+        <View key={`row-${i}`} style={styles.nestedRow}>
+          <View style={styles.nestedItem}>
+            {renderRollCard({ item: rolls[i] })}
+          </View>
+          {rolls[i + 1] && (
+            <View style={styles.nestedItem}>
+              {renderRollCard({ item: rolls[i + 1] })}
+            </View>
+          )}
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.container, styles.rollsList]}>
+        {rows}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <FlatList
         data={rolls}
         renderItem={renderRollCard}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id || `roll-${index}`}
         numColumns={2}
         columnWrapperStyle={{ justifyContent: 'space-between' }}
         contentContainerStyle={styles.rollsList}

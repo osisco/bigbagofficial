@@ -57,13 +57,18 @@ const RollsScreen = () => {
   const insets = useSafeAreaInsets();
 
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+
+  const {
+    rolls,
+    loading: isLoading,
+    error,
+    currentIndex: feedCurrentIndex,
+    onViewableItemsChanged: feedOnViewableItemsChanged,
+    refresh
+  } = useRollFeed({ category: selectedCategory });
   const [currentRollIndex, setCurrentRollIndex] = useState<number>(0);
   const [isTabFocused, setIsTabFocused] = useState<boolean>(false);
-  const [rolls, setRolls] = useState<Roll[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  // refs to access RollCard imperative handles
   const rollRefs = useRef<Record<string, any>>({});
   const playingIndexRef = useRef<number | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
@@ -177,39 +182,47 @@ const RollsScreen = () => {
     minimumViewTime: 300,
   }).current;
 
-  const loadRolls = useCallback(async () => {
-    try {
-      setError(null);
-      console.log("Loading rolls for category:", selectedCategory);
-
-      const params: any = {};
-
-      if (selectedCategory !== "all") {
-        params.category = selectedCategory;
+  // Video player management with debouncing
+  const pauseAllVideos = useCallback(() => {
+    Object.values(rollRefs.current).forEach(ref => {
+      if (ref?.pause) {
+        try { ref.pause(); } catch (e) { console.warn('pause failed', e); }
       }
+    });
+    playingIndexRef.current = null;
+  }, []);
 
-      const response = await rollsApi.getAll(params);
-
-      if (response.success && response.data) {
-        const validRolls = response.data.filter(isValidReel);
-        setRolls(validRolls);
-        console.log("Rolls loaded successfully:", validRolls.length);
-      } else {
-        console.error("Failed to load rolls:", response.message);
-        setError(response.message || "Failed to load rolls");
+  const playVideoAtIndex = useCallback((index: number) => {
+    if (index < 0 || index >= rolls.length) return;
+    
+    const roll = rolls[index];
+    if (!roll?.id) return;
+    
+    const ref = rollRefs.current[roll.id];
+    if (ref?.play) {
+      try {
+        ref.play();
+        playingIndexRef.current = index;
+      } catch (e) {
+        console.warn('play failed', e);
       }
-    } catch (err) {
-      console.error("Error loading rolls:", err);
-      const errorMessage = handleApiError(err);
-      setError(errorMessage);
-    } finally {
-      setIsLoading(false);
     }
-  }, [selectedCategory]);
+  }, [rolls]);
 
-  useEffect(() => {
-    loadRolls();
-  }, [loadRolls]);
+  // Debounced video control
+  const videoControlTimeout = useRef<NodeJS.Timeout>();
+  const handleVideoChange = useCallback((newIndex: number) => {
+    if (videoControlTimeout.current) {
+      clearTimeout(videoControlTimeout.current);
+    }
+    
+    videoControlTimeout.current = setTimeout(() => {
+      if (playingIndexRef.current !== newIndex) {
+        pauseAllVideos();
+        playVideoAtIndex(newIndex);
+      }
+    }, 100);
+  }, [pauseAllVideos, playVideoAtIndex]);
 
   // Recalculate roll height when layout or insets change
   useEffect(() => {
@@ -224,76 +237,49 @@ const RollsScreen = () => {
   setRollHeight(Math.max(200, visibleHeight));
 }, [headerHeight, categoriesHeight, insets.top, insets.bottom]);
 
-  // Autoplay initial roll when rolls load or when tab receives focus
-  useEffect(() => {
-    if (rolls.length === 0) return;
-    const initialIndex = currentRollIndex || 0;
-    const initial = rolls[initialIndex];
-    if (initial && rollRefs.current[initial.id] && typeof rollRefs.current[initial.id].play === 'function') {
-      try { rollRefs.current[initial.id].play(); playingIndexRef.current = initialIndex; } catch (e) { console.warn('initial play failed', e); }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rolls]);
-
+  // Tab focus management
   useFocusEffect(
     useCallback(() => {
-      console.log("Rolls tab focused");
       setIsTabFocused(true);
+      if (rolls.length > 0) {
+        playVideoAtIndex(currentRollIndex);
+      }
       return () => {
-        console.log("Rolls tab unfocused");
         setIsTabFocused(false);
+        pauseAllVideos();
       };
-    }, [])
+    }, [rolls.length, currentRollIndex, playVideoAtIndex, pauseAllVideos])
   );
 
-  // Create a stable callback using useRef that also controls play/pause
+  // Combined viewable items handler
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    feedOnViewableItemsChanged({ viewableItems });
+    
     if (viewableItems && viewableItems.length > 0) {
       const newIndex = viewableItems[0].index;
-      if (
-        newIndex !== null &&
-        newIndex !== undefined &&
-        newIndex !== currentRollIndex
-      ) {
-        console.log(`Viewable item changed from ${currentRollIndex} to ${newIndex}`);
+      if (newIndex !== null && newIndex !== undefined && newIndex !== currentRollIndex) {
         setCurrentRollIndex(newIndex);
+        handleVideoChange(newIndex);
       }
     }
   }).current;
 
-  // Use momentum end to deterministically pause previous and play current
+  // Momentum scroll end for final video control
   const onMomentumScrollEnd = useCallback((event: any) => {
     const offsetY = event.nativeEvent.contentOffset.y || 0;
     const newIndex = Math.round(offsetY / rollHeight);
-    if (newIndex === playingIndexRef.current) return;
-
-    const prevIndex = playingIndexRef.current;
-    const prev = typeof prevIndex === 'number' ? rolls[prevIndex] : null;
-    const next = rolls[newIndex];
-
-    if (prev && rollRefs.current[prev.id] && typeof rollRefs.current[prev.id].pause === 'function') {
-      try { rollRefs.current[prev.id].pause(); } catch (e) { console.warn('pause failed on prev', e); }
+    
+    if (newIndex !== playingIndexRef.current) {
+      handleVideoChange(newIndex);
     }
+  }, [rollHeight, handleVideoChange]);
 
-    if (next && rollRefs.current[next.id] && typeof rollRefs.current[next.id].play === 'function') {
-      try { rollRefs.current[next.id].play(); } catch (e) { console.warn('play failed on next', e); }
-    }
-
-    playingIndexRef.current = newIndex;
-    setCurrentRollIndex(newIndex);
-  }, [rolls]);
-
-  useEffect(() => {
-    console.log("Category changed, resetting to index 0");
+  // Category change handler
+  const handleCategoryChange = useCallback((categoryId: string) => {
+    setSelectedCategory(categoryId);
     setCurrentRollIndex(0);
-
-    // Scroll to top when category changes
-    if (flatListRef.current && rolls.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToIndex({ index: 0, animated: false });
-      }, 100);
-    }
-  }, [selectedCategory, rolls.length]);
+    pauseAllVideos();
+  }, [pauseAllVideos]);
 
   const handleUploadPress = useCallback(() => {
     router.push("/upload-roll");
@@ -312,7 +298,7 @@ const RollsScreen = () => {
           if (item.id === 'upload') {
             router.push('/upload-roll');
           } else {
-            setSelectedCategory(item.id);
+            handleCategoryChange(item.id);
           }
         }}
       >
@@ -450,7 +436,7 @@ const RollsScreen = () => {
         </View>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
-          <Text style={styles.retryText} onPress={loadRolls}>
+          <Text style={styles.retryText} onPress={refresh}>
             Tap to retry
           </Text>
         </View>
@@ -464,7 +450,7 @@ const RollsScreen = () => {
         <FlatList
           data={categories}
           renderItem={renderCategory}
-          keyExtractor={(item) => `category-${item.id}`}
+          keyExtractor={(item, index) => `category-${item.id || index}`}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.categoriesList}

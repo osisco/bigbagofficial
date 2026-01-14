@@ -64,8 +64,19 @@ const ShopSchema = new mongoose.Schema(
       type: String,
       default: "en",
     },
+    shareCount: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true },
 );
+
+// Indexes for efficient queries
+ShopSchema.index({ vendorId: 1 });
+ShopSchema.index({ isApproved: 1 });
+ShopSchema.index({ country: 1 });
+ShopSchema.index({ category: 1 });
+ShopSchema.index({ vendorId: 1, isApproved: 1 });
 
 export default mongoose.model("Shop", ShopSchema);

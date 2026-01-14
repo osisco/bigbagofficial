@@ -281,13 +281,7 @@ export const offersApi = {
 
 // Rolls API
 export const rollsApi = {
-  getAll: async (params?: { category?: string; page?: number; limit?: number; shopId?: string }) => {
-    // If shopId is provided, use the shop-specific endpoint
-    if (params?.shopId) {
-      const response = await apiClient.get(`/api/rolls/shop/${params.shopId}`);
-      return response.data;
-    }
-    
+  getAll: async (params?: { category?: string; page?: number; limit?: number }) => {
     const response = await apiClient.get("/api/rolls", { params });
     return response.data;
   },
@@ -426,10 +420,11 @@ export const categoriesApi = {
 
 // Shops API
 export const shopsApi = {
-  getAll: async (params?: { category?: string; page?: number; limit?: number }) => {
-    const response = await apiClient.get("/api/shops", { params });
-    return response.data;
-  },
+getAll: async (params?: { category?: string; page?: number; limit?: number; country?: string }) => {
+  const response = await apiClient.get("/api/shops", { params });
+  return response.data;
+},
+
 
   getById: async (shopId: string) => {
     const response = await apiClient.get(`/api/shops/${shopId}`);
@@ -472,6 +467,21 @@ export const shopsApi = {
       `/api/shops/${shopId}/reviews`,
       reviewData
     );
+    return response.data;
+  },
+
+  share: async (shopId: string, country?: string) => {
+    const response = await apiClient.post(`/api/shops/${shopId}/share`, {
+      country,
+    });
+    return response.data;
+  },
+
+  getTopSharedThisWeek: async (country?: string) => {
+    // If country is provided, send it (for guest users)
+    // If not provided, backend will use authenticated user's account country
+    const params = country ? { country } : {};
+    const response = await apiClient.get(`/api/shops/top-shared`, { params });
     return response.data;
   },
 };
@@ -606,23 +616,6 @@ export const uploadApi = {
     if (folder) formData.append("folder", folder);
 
     const response = await uploadClient.post("/api/upload/video", formData);
-    return response.data;
-  },
-};
-
-// Test API
-export const testApi = {
-  testFormData: async (imageUri: string) => {
-    const formData = new FormData();
-    formData.append("image", {
-      uri: imageUri,
-      type: "image/jpeg",
-      name: "test.jpg",
-    } as any);
-    formData.append("title", "Test Upload");
-
-    console.log("Testing FormData:", formData);
-    const response = await uploadClient.post("/api/test-formdata", formData);
     return response.data;
   },
 };

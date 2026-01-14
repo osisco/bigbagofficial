@@ -178,37 +178,20 @@ export default function CreateCouponScreen() {
 
   const loadUserShops = async () => {
     try {
-      console.log('=== SHOP LOADING DEBUG ===');
-      console.log('User object:', user);
-      console.log('User ID:', user?.id, 'type:', typeof user?.id);
-      console.log('User _id:', user?._id, 'type:', typeof user?._id);
-      console.log('User role:', user?.role);
-      console.log('Vendor profile:', vendorProfile);
-      
       const response = await shopsApi.getAll();
-      console.log('All shops response:', response);
       
       if (response.success && response.data) {
-        console.log('Raw shops data:', response.data);
-        
         let filteredShops;
         if (user?.role === 'admin') {
           filteredShops = response.data;
         } else {
           const userId = user?.id || user?._id;
-          console.log('Using userId for filtering:', userId, 'type:', typeof userId);
           
           filteredShops = response.data.filter(shop => {
-            console.log('Shop:', shop.name);
-            console.log('  - shop.vendorId:', shop.vendorId, 'type:', typeof shop.vendorId);
-            console.log('  - userId:', userId, 'type:', typeof userId);
-            console.log('  - Match:', shop.vendorId === userId);
-            console.log('  - String match:', shop.vendorId?.toString() === userId?.toString());
             return shop.vendorId === userId || shop.vendorId?.toString() === userId?.toString();
           });
         }
         
-        console.log('Filtered shops:', filteredShops);
         setUserShops(filteredShops);
         
         if (filteredShops.length === 1) {

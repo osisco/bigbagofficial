@@ -19,14 +19,11 @@ export function useAuth() {
   useEffect(() => {
     const loadAuth = async () => {
       try {
-        console.log("Loading auth state from storage...");
         const stored = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
         if (stored) {
           const parsed: AuthState = JSON.parse(stored);
-          console.log("Loaded auth state:", parsed);
           setAuthState({ ...parsed, isLoading: false });
         } else {
-          console.log("No stored auth state found");
           setAuthState((prev) => ({ ...prev, isLoading: false }));
         }
       } catch (err) {
@@ -40,7 +37,6 @@ export function useAuth() {
   // Persist state whenever it changes
   useEffect(() => {
     if (!authState.isLoading) {
-      console.log("Persisting auth state:", authState);
       AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authState)).catch(
         (err) => console.error("Failed to persist auth state", err)
       );
@@ -49,41 +45,21 @@ export function useAuth() {
 
   // Role helpers
   const isAdmin = useCallback((): boolean => {
-    const result = authState.user?.role === "admin";
-    console.log("isAdmin check:", {
-      user: authState.user,
-      role: authState.user?.role,
-      result,
-    });
-    return result;
+    return authState.user?.role === "admin";
   }, [authState.user]);
 
   const isVendor = useCallback((): boolean => {
-    const result = authState.user?.role === "vendor";
-    console.log("isVendor check:", {
-      user: authState.user,
-      role: authState.user?.role,
-      result,
-    });
-    return result;
+    return authState.user?.role === "vendor";
   }, [authState.user]);
 
   const isUser = useCallback((): boolean => {
-    const result = authState.user?.role === "user";
-    console.log("isUser check:", {
-      user: authState.user,
-      role: authState.user?.role,
-      result,
-    });
-    return result;
+    return authState.user?.role === "user";
   }, [authState.user]);
 
   // Sign In (Login)
   const signIn = useCallback(
     async (email: string, password: string): Promise<boolean> => {
       try {
-        console.log("Attempting sign in with email:", email);
-
         const response = await authApi.login(email, password);
 
         const payload =
@@ -108,17 +84,14 @@ export function useAuth() {
             isLoading: false,
           };
 
-          console.log("Sign in successful, new state:", newState);
           setAuthState(newState);
           return true;
         }
 
-        console.log("Sign in failed: invalid response shape", response);
         return false;
       } catch (error) {
         console.error("Sign in error:", error);
-        const errorMessage = handleApiError(error);
-        console.error("Error message:", errorMessage);
+        handleApiError(error);
         return false;
       }
     },
@@ -140,8 +113,6 @@ export function useAuth() {
       role: "user" | "vendor";
     }): Promise<{ success: boolean; error?: string }> => {
       try {
-        console.log("Attempting sign up with data:", userData);
-
         const response = await authApi.signup(userData);
 
         const payload = (response && response.data) || response || null;
@@ -162,12 +133,10 @@ export function useAuth() {
             isLoading: false,
           };
 
-          console.log("Sign up successful, new state:", newState);
           setAuthState(newState);
           return { success: true };
         }
 
-        console.log("Sign up failed: invalid response shape", response);
         return { success: false, error: "Failed to create account" };
       } catch (error) {
         console.error("Sign up error:", error);
@@ -183,9 +152,6 @@ export function useAuth() {
   // Sign Out (Logout)
   const signOut = useCallback(async () => {
     try {
-      console.log("Signing out user");
-
-
       try {
         await authApi.logout();
       } catch (apiError) {
@@ -206,7 +172,6 @@ export function useAuth() {
         // ignore
       }
       await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
-      console.log("Sign out successful");
     } catch (error) {
       console.error("Sign out error:", error);
     }

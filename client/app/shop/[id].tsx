@@ -1,13 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity, Linking, Alert, ActivityIndicator, TextInput, Modal } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity, Linking, Alert, ActivityIndicator, TextInput, Modal, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, useCommonStyles, spacing, typography,  borderRadius } from '../../styles/commonStyles';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useAuth } from '../../hooks/useAuth';
+import { useCountry } from '../../hooks/useCountry';
 import { shopsApi, offersApi, couponsApi, handleApiError } from '../../services/api';
+import { COUNTRIES } from '../../constants/countries';
 import OfferCard from '../../components/OfferCard';
 import CouponCard from '../../components/CouponCard';
 import ShopRolls from '../../components/ShopRolls';
@@ -19,6 +21,7 @@ export default function ShopDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { user } = useAuth();
+  const { selectedCountry } = useCountry();
   const [activeTab, setActiveTab] = useState<'offers' | 'coupons' | 'rolls' | 'reviews'>('offers');
   const [shop, setShop] = useState<Shop | null>(null);
   const [shopOffers, setShopOffers] = useState<Offer[]>([]);
@@ -172,6 +175,13 @@ export default function ShopDetailsScreen() {
     },
     content: {
       padding: spacing.md,
+    },
+    offersContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      alignItems: 'flex-start',
+      paddingHorizontal: spacing.sm,
     },
     emptyState: {
       alignItems: 'center',
@@ -415,6 +425,29 @@ export default function ShopDetailsScreen() {
     );
   }
 
+  const handleShare = async () => {
+    try {
+      // If user is authenticated, backend will use their account country automatically
+      // Only send country for guest users
+      let countryToSend = null;
+      
+      if (!user && selectedCountry) {
+        // For guest users, send selectedCountry code
+        countryToSend = selectedCountry;
+      }
+      // For authenticated users, don't send country - backend uses account country
+      
+      await shopsApi.share(shop.id, countryToSend);
+      const link = `https://bigbag.app/shop/${shop.id}`;
+      await Share.share({
+        message: `Check out ${shop.name} on BigBag! ${shop.description} ${link}`,
+        url: link,
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  };
+
   const handleVisitShop = async () => {
     try {
       const supported = await Linking.canOpenURL(shop.link);
@@ -494,6 +527,12 @@ export default function ShopDetailsScreen() {
                 <Ionicons name="create-outline" size={24} color={colors.primary} />
               </TouchableOpacity>
             )}
+            <TouchableOpacity 
+              style={[styles.favoriteButton, { marginRight: spacing.sm }]} 
+              onPress={handleShare}
+            >
+              <Ionicons name="share-outline" size={24} color={colors.text} />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.favoriteButton} onPress={handleFavoritePress}>
               <Ionicons 
                 name={isFavorite(shop.id) ? "heart" : "heart-outline"} 
@@ -573,50 +612,46 @@ export default function ShopDetailsScreen() {
           </TouchableOpacity>
         </View>
 
-        {activeTab !== 'rolls' && (
-          <View style={styles.content}>
-            {activeTab === 'offers' ? (
-              shopOffers.length > 0 ? (
-                shopOffers.map(offer => (
+        <View style={styles.content}>
+          {activeTab === 'offers' ? (
+            shopOffers.length > 0 ? (
+              <View style={styles.offersContainer}>
+                {shopOffers.map(offer => (
                   <OfferCard key={offer.id} offer={offer} />
-                ))
-              ) : (
-                <View style={styles.emptyState}>
-                  <Ionicons name="pricetag-outline" size={48} color={colors.textSecondary} />
-                  <Text style={styles.emptyText}>No offers available</Text>
-                </View>
-              )
-            ) : activeTab === 'coupons' ? (
-              shopCoupons.length > 0 ? (
-                shopCoupons.map(coupon => (
-                  <CouponCard key={coupon.id} coupon={coupon} />
-                ))
-              ) : (
-                <View style={styles.emptyState}>
-                  <Ionicons name="ticket-outline" size={48} color={colors.textSecondary} />
-                  <Text style={styles.emptyText}>No coupons available</Text>
-                </View>
-              )
+                ))}
+              </View>
             ) : (
-              reviews.length > 0 ? (
-                reviews.map(review => renderReviewItem(review))
-              ) : (
-                <View style={styles.emptyState}>
-                  <Ionicons name="chatbubble-outline" size={48} color={colors.textSecondary} />
-                  <Text style={styles.emptyText}>No reviews yet</Text>
-                  <Text style={styles.emptySubtext}>Be the first to review this shop!</Text>
-                </View>
-              )
-            )}
-          </View>
-        )}
-      </ScrollView>
-      
-      {activeTab === 'rolls' && (
-        <View style={{ flex: 1 }}>
-          <ShopRolls shopId={id!} />
+              <View style={styles.emptyState}>
+                <Ionicons name="pricetag-outline" size={48} color={colors.textSecondary} />
+                <Text style={styles.emptyText}>No offers available</Text>
+              </View>
+            )
+          ) : activeTab === 'coupons' ? (
+            shopCoupons.length > 0 ? (
+              shopCoupons.map(coupon => (
+                <CouponCard key={coupon.id} coupon={coupon} />
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="ticket-outline" size={48} color={colors.textSecondary} />
+                <Text style={styles.emptyText}>No coupons available</Text>
+              </View>
+            )
+          ) : activeTab === 'rolls' ? (
+            <ShopRolls shopId={id!} nested={true} />
+          ) : (
+            reviews.length > 0 ? (
+              reviews.map(review => renderReviewItem(review))
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="chatbubble-outline" size={48} color={colors.textSecondary} />
+                <Text style={styles.emptyText}>No reviews yet</Text>
+                <Text style={styles.emptySubtext}>Be the first to review this shop!</Text>
+              </View>
+            )
+          )}
         </View>
-      )}
+      </ScrollView>
 
       <Modal
         visible={showRatingModal}

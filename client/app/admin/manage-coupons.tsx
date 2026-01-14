@@ -133,7 +133,7 @@ export default function ManageCouponsScreen() {
       <FlatList
         data={coupons}
         renderItem={renderCouponItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id || `coupon-${index}`}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />

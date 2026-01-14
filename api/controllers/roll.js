@@ -6,19 +6,26 @@ import Comment from "../models/Comment.js";
 import { v2 as cloudinary } from "cloudinary";
 import fs from "fs";
 import { feedCache } from "../utils/cache.js";
+import logger from "../utils/logger.js";
+import { API_CONFIG } from "../config/constants.js";
+
+// Helper to get actual comment count for a roll
+const getActualCommentCount = async (rollId) => {
+  return await Comment.countDocuments({ roll: rollId });
+};
 
 export const createRoll = async (req, res) => {
   try {
-    console.log("=== ROLL UPLOAD REQUEST RECEIVED ===");
-    console.log("Content-Type:", req.headers["content-type"]);
-    console.log("Content-Length:", req.headers["content-length"]);
-    console.log("Has file:", !!req.file);
-    console.log(
+    logger.debug("=== ROLL UPLOAD REQUEST RECEIVED ===");
+    logger.debug("Content-Type:", req.headers["content-type"]);
+    logger.debug("Content-Length:", req.headers["content-length"]);
+    logger.debug("Has file:", !!req.file);
+    logger.debug(
       "File details:",
       req.file ? { name: req.file.filename, size: req.file.size } : "No file",
     );
-    console.log("Body:", req.body);
-    console.log("User:", req.user?.id);
+    logger.debug("Body:", req.body);
+    logger.debug("User:", req.user?.id);
 
     const user = await User.findById(req.user.id);
     if (!user || !(user.role === "vendor" || user.role === "admin")) {
@@ -41,7 +48,7 @@ export const createRoll = async (req, res) => {
     ) {
       shopId = shop.trim();
     } else {
-      console.log("Invalid shop data received:", { shop, type: typeof shop });
+      logger.warn("Invalid shop data received:", { shop, type: typeof shop });
       return res.status(400).json({
         success: false,
         message: "Shop ID is required and must be valid",
@@ -50,22 +57,22 @@ export const createRoll = async (req, res) => {
 
     const Vendor = (await import("../models/Vendor.js")).default;
     let vendor = await Vendor.findOne({ userId: req.user.id });
-    console.log("Vendor lookup result:", vendor ? "Found" : "Not found");
+    logger.debug("Vendor lookup result:", vendor ? "Found" : "Not found");
 
     if (!vendor) {
-      console.log("Creating new vendor profile");
+      logger.debug("Creating new vendor profile");
       vendor = new Vendor({
         userId: req.user.id,
         availableRolls: 5,
         totalRollsUsed: 0,
       });
       await vendor.save();
-      console.log("New vendor created with 5 free rolls");
+      logger.debug("New vendor created with 5 free rolls");
     }
 
-    console.log("Looking for shop with ID:", shopId);
+    logger.debug("Looking for shop with ID:", shopId);
     const shopDoc = await Shop.findById(shopId);
-    console.log("Shop found:", shopDoc ? "Yes" : "No");
+    logger.debug("Shop found:", shopDoc ? "Yes" : "No");
     if (!shopDoc) {
       return res.status(404).json({
         success: false,
@@ -73,25 +80,25 @@ export const createRoll = async (req, res) => {
       });
     }
 
-    console.log("Shop ownership check:");
-    console.log("User role:", user.role);
-    console.log("Shop vendorId:", shopDoc.vendorId);
-    console.log("Current vendor _id:", vendor._id);
+    logger.debug("Shop ownership check:");
+    logger.debug("User role:", user.role);
+    logger.debug("Shop vendorId:", shopDoc.vendorId);
+    logger.debug("Current vendor _id:", vendor._id);
 
     if (
       user.role === "vendor" &&
       shopDoc.vendorId &&
       shopDoc.vendorId.toString() !== vendor._id.toString()
     ) {
-      console.log(
+      logger.debug(
         "Shop ownership validation failed - fixing vendor relationship",
       );
 
       shopDoc.vendorId = vendor._id;
       await shopDoc.save();
-      console.log("Shop vendorId updated to match current vendor");
+      logger.debug("Shop vendorId updated to match current vendor");
     }
-    console.log("Shop ownership validation passed");
+    logger.debug("Shop ownership validation passed");
 
     if (!shopDoc.isApproved && user.role !== "admin") {
       return res.status(400).json({
@@ -103,20 +110,20 @@ export const createRoll = async (req, res) => {
     let uploadResult;
     if (req.file) {
       try {
-        console.log("Uploading video to Cloudinary...");
+        logger.debug("Uploading video to Cloudinary...");
         uploadResult = await cloudinary.uploader.upload(req.file.path, {
           resource_type: "video",
           folder: "rolls",
           quality: "auto",
           format: "mp4",
         });
-        console.log("Video uploaded to Cloudinary:", uploadResult.secure_url);
+        logger.debug("Video uploaded to Cloudinary:", uploadResult.secure_url);
 
         if (fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
       } catch (uploadError) {
-        console.error("Cloudinary upload error:", uploadError);
+        logger.error("Cloudinary upload error:", uploadError);
         return res.status(500).json({
           success: false,
           message: "Failed to upload video to Cloudinary",
@@ -126,10 +133,10 @@ export const createRoll = async (req, res) => {
       uploadResult = {
         secure_url: req.body.videoUrl || "https://test-video-url.mp4",
       };
-      console.log("Using test video URL:", uploadResult.secure_url);
+      logger.debug("Using test video URL:", uploadResult.secure_url);
     }
 
-    console.log("Creating roll with data:", {
+    logger.debug("Creating roll with data:", {
       shop: shopId,
       caption: caption || "",
       category: category || "all",
@@ -147,11 +154,11 @@ export const createRoll = async (req, res) => {
       videoUrl: uploadResult.secure_url,
     });
 
-    console.log("Saving roll...");
+    logger.debug("Saving roll...");
     await newRoll.save();
-    console.log("Roll saved successfully");
+    logger.debug("Roll saved successfully");
 
-    console.log("Updating user roll count...");
+    logger.debug("Updating user roll count...");
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
       {
@@ -176,9 +183,9 @@ export const createRoll = async (req, res) => {
     }
 
     await vendor.save();
-    console.log("User and vendor updated successfully");
+    logger.debug("User and vendor updated successfully");
 
-    console.log("Sending response...");
+    logger.debug("Sending response...");
     res.status(200).json({
       success: true,
       data: {
@@ -187,9 +194,9 @@ export const createRoll = async (req, res) => {
       },
       message: "Roll uploaded successfully",
     });
-    console.log("Response sent successfully");
+    logger.debug("Response sent successfully");
   } catch (error) {
-    console.error("Error uploading roll:", error);
+    logger.error("Error uploading roll:", error);
     return res.status(500).json({
       success: false,
       message: "Server error while uploading roll",
@@ -201,6 +208,15 @@ export const getRolls = async (req, res) => {
   try {
     const { category = "all", cursor, limit = 20 } = req.query;
     const userId = req.user?.id;
+
+    // Input validation
+    const limitNum = Math.min(Math.max(parseInt(limit) || 20, 1), API_CONFIG.MAX_LIMIT);
+    if (cursor && isNaN(new Date(cursor).getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid cursor format",
+      });
+    }
 
     const cacheKey = `rolls:${category}:${cursor || "latest"}:${userId || "anon"}`;
 
@@ -216,46 +232,94 @@ export const getRolls = async (req, res) => {
       filter.createdAt = { $lt: new Date(cursor) };
     }
 
-    const rolls = await Roll.find(filter)
-      .populate("shop", "name logo")
-      .populate("createdBy", "name")
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .lean();
+    // Filter out rolls with null shop or createdBy at database level
+    filter.shop = { $exists: true, $ne: null };
+    filter.createdBy = { $exists: true, $ne: null };
 
-    let userSaves = [];
-    if (userId) {
-      const saves = await Saved.find({ user: userId }).select("roll").lean();
-      userSaves = saves.map((save) => save.roll.toString());
+    // Get user's saved and liked roll IDs in parallel (optimized)
+    const [rolls, userSaves, userLikedRollIds] = await Promise.all([
+      Roll.find(filter)
+        .populate("shop", "name logo")
+        .populate("createdBy", "name")
+        .sort({ createdAt: -1 })
+        .limit(limitNum)
+        .lean(),
+      userId
+        ? Saved.distinct("roll", { user: userId }).then((ids) =>
+            ids.map((id) => id.toString()),
+          )
+        : Promise.resolve([]),
+      userId
+        ? Roll.distinct("_id", { likes: userId }).then((ids) =>
+            ids.map((id) => id.toString()),
+          )
+        : Promise.resolve([]),
+    ]);
+
+    // Filter out rolls where populate returned null (referenced documents don't exist)
+    const validRolls = rolls.filter(
+      (roll) => roll.shop && roll.createdBy && roll.shop._id && roll.createdBy._id,
+    );
+
+    // Get actual comment counts for all rolls in parallel (if commentsCount is missing or 0)
+    const rollsNeedingSync = validRolls.filter(
+      (roll) => !roll.commentsCount || roll.commentsCount === 0,
+    );
+    
+    const commentCountsMap = new Map();
+    
+    if (rollsNeedingSync.length > 0) {
+      const rollIds = rollsNeedingSync.map((roll) => roll._id);
+      const commentCounts = await Comment.aggregate([
+        { $match: { roll: { $in: rollIds } } },
+        { $group: { _id: "$roll", count: { $sum: 1 } } },
+      ]);
+      
+      commentCounts.forEach((item) => {
+        commentCountsMap.set(item._id.toString(), item.count);
+      });
     }
 
-    const transformedRolls = rolls
-      .filter((roll) => roll.shop && roll.createdBy)
-      .map((roll) => {
-        const isSaved = userId
-          ? userSaves.includes(roll._id.toString())
-          : false;
-        const isLiked = userId ? roll.likes?.includes(userId) || false : false;
+    const transformedRolls = validRolls.map((roll) => {
+      const isSaved = userId
+        ? userSaves.includes(roll._id.toString())
+        : false;
+      const isLiked = userId
+        ? userLikedRollIds.includes(roll._id.toString())
+        : false;
 
-        return {
-          id: roll._id.toString(),
-          shopId: roll.shop._id.toString(),
-          shopName: roll.shop.name,
-          shopLogo: roll.shop.logo,
-          videoUrl: roll.videoUrl,
-          caption: roll.caption,
-          category: roll.category,
-          likes: roll.likesCount || 0,
-          commentsCount: roll.commentsCount || 0,
-          saves: roll.savesCount || 0,
-          shares: roll.sharesCount || 0,
-          createdBy: roll.createdBy._id,
-          createdAt: roll.createdAt,
-          isLiked,
-          isSaved,
-          duration: roll.duration || 30,
-        };
-      });
+      // Use actual count if stored count is missing or 0
+      let commentsCount = roll.commentsCount || 0;
+      if (commentsCount === 0) {
+        const actualCount = commentCountsMap.get(roll._id.toString());
+        if (actualCount !== undefined && actualCount > 0) {
+          commentsCount = actualCount;
+          // Update the roll in background (don't await)
+          Roll.findByIdAndUpdate(roll._id, { commentsCount: actualCount }).catch(
+            (err) => logger.error("Error syncing comment count:", err),
+          );
+        }
+      }
+
+      return {
+        id: roll._id.toString(),
+        shopId: roll.shop._id.toString(),
+        shopName: roll.shop.name,
+        shopLogo: roll.shop.logo,
+        videoUrl: roll.videoUrl,
+        caption: roll.caption,
+        category: roll.category,
+        likes: roll.likesCount || 0,
+        commentsCount,
+        saves: roll.savesCount || 0,
+        shares: roll.sharesCount || 0,
+        createdBy: roll.createdBy._id,
+        createdAt: roll.createdAt,
+        isLiked,
+        isSaved,
+        duration: roll.duration || 30,
+      };
+    });
 
     const response = {
       success: true,
@@ -264,7 +328,7 @@ export const getRolls = async (req, res) => {
         transformedRolls.length > 0
           ? transformedRolls[transformedRolls.length - 1].createdAt
           : null,
-      hasMore: transformedRolls.length === parseInt(limit),
+      hasMore: transformedRolls.length === limitNum,
       message: "Rolls retrieved successfully",
     };
 
@@ -272,7 +336,7 @@ export const getRolls = async (req, res) => {
 
     res.status(200).json(response);
   } catch (error) {
-    console.error("Error fetching rolls:", error);
+    logger.error("Error fetching rolls:", error);
     res.status(500).json({
       success: false,
       message: "Server error while fetching rolls",
@@ -318,7 +382,7 @@ export const getRollById = async (req, res) => {
       message: "Roll retrieved successfully",
     });
   } catch (error) {
-    console.error("Error fetching roll:", error);
+    logger.error("Error fetching roll:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -335,24 +399,26 @@ export const getRollsByShop = async (req, res) => {
       .populate("createdBy", "name")
       .sort({ createdAt: -1 });
 
-    const transformedRolls = rolls.map((roll) => ({
-      id: roll._id.toString(),
-      shopId: roll.shop._id.toString(),
-      shopName: roll.shop.name,
-      shopLogo: roll.shop.logo,
-      videoUrl: roll.videoUrl,
-      caption: roll.caption,
-      category: roll.category,
-      likes: roll.likesCount || 0,
-      comments: [],
-      saves: roll.savesCount || 0,
-      shares: roll.sharesCount || 0,
-      createdBy: roll.createdBy._id,
-      createdAt: roll.createdAt,
-      isLiked: false,
-      isSaved: false,
-      duration: roll.duration || 30,
-    }));
+    const transformedRolls = rolls
+      .filter((roll) => roll.shop && roll.createdBy)
+      .map((roll) => ({
+        id: roll._id.toString(),
+        shopId: roll.shop._id.toString(),
+        shopName: roll.shop.name,
+        shopLogo: roll.shop.logo,
+        videoUrl: roll.videoUrl,
+        caption: roll.caption,
+        category: roll.category,
+        likes: roll.likesCount || 0,
+        commentsCount: roll.commentsCount || 0,
+        saves: roll.savesCount || 0,
+        shares: roll.sharesCount || 0,
+        createdBy: roll.createdBy._id,
+        createdAt: roll.createdAt,
+        isLiked: false,
+        isSaved: false,
+        duration: roll.duration || 30,
+      }));
 
     res.status(200).json({
       success: true,
@@ -360,7 +426,7 @@ export const getRollsByShop = async (req, res) => {
       message: "Shop rolls retrieved successfully",
     });
   } catch (error) {
-    console.error("Error fetching shop rolls:", error);
+    logger.error("Error fetching shop rolls:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -403,7 +469,7 @@ export const updateRoll = async (req, res) => {
       message: "Roll updated successfully",
     });
   } catch (error) {
-    console.error("Error updating roll:", error);
+    logger.error("Error updating roll:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -448,7 +514,7 @@ export const deleteRoll = async (req, res) => {
       message: "Roll deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting roll:", error);
+    logger.error("Error deleting roll:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -501,7 +567,7 @@ export const likeRoll = async (req, res) => {
       message: "Roll liked successfully",
     });
   } catch (error) {
-    console.error("Like roll error:", error);
+    logger.error("Like roll error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -559,7 +625,7 @@ export const unlikeRoll = async (req, res) => {
       message: "Roll unliked successfully",
     });
   } catch (error) {
-    console.error("Unlike roll error:", error);
+    logger.error("Unlike roll error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -572,6 +638,7 @@ export const toggleLike = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
+    // Check if roll exists and if user has already liked it
     const roll = await Roll.findById(id);
     if (!roll) {
       return res.status(404).json({
@@ -582,27 +649,71 @@ export const toggleLike = async (req, res) => {
 
     const isLiked = roll.likes && roll.likes.includes(userId);
 
+    // Use atomic operation to prevent race conditions
+    let result;
     if (isLiked) {
-      roll.likes = roll.likes.filter((like) => like.toString() !== userId);
-      roll.likesCount = Math.max(0, (roll.likesCount || 0) - 1);
+      // Unlike: remove from likes array and decrement count
+      result = await Roll.findOneAndUpdate(
+        {
+          _id: id,
+          likes: userId, // Only if user has liked
+        },
+        {
+          $pull: { likes: userId },
+          $inc: { likesCount: -1 },
+        },
+        { new: true }
+      );
+
+      if (!result) {
+        // Roll was already unliked or not found
+        return res.status(400).json({
+          success: false,
+          message: "Roll not liked yet",
+        });
+      }
+
+      // Ensure count doesn't go negative
+      if (result.likesCount < 0) {
+        await Roll.findByIdAndUpdate(id, { likesCount: 0 });
+        result.likesCount = 0;
+      }
     } else {
-      if (!roll.likes) roll.likes = [];
-      roll.likes.push(userId);
-      roll.likesCount = (roll.likesCount || 0) + 1;
+      // Like: add to likes array and increment count
+      result = await Roll.findOneAndUpdate(
+        {
+          _id: id,
+          likes: { $ne: userId }, // Only if user hasn't liked yet
+        },
+        {
+          $push: { likes: userId },
+          $inc: { likesCount: 1 },
+        },
+        { new: true }
+      );
+
+      if (!result) {
+        // Roll was already liked
+        return res.status(400).json({
+          success: false,
+          message: "Roll already liked",
+        });
+      }
     }
 
-    await roll.save();
+    // Clear feed cache when likes change
+    feedCache.clear();
 
     res.status(200).json({
       success: true,
       data: {
         isLiked: !isLiked,
-        likesCount: roll.likesCount,
+        likesCount: result.likesCount,
       },
       message: isLiked ? "Roll unliked" : "Roll liked",
     });
   } catch (error) {
-    console.error("Toggle like error:", error);
+    logger.error("Toggle like error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -632,7 +743,7 @@ export const shareRoll = async (req, res) => {
       message: "Roll shared successfully",
     });
   } catch (error) {
-    console.error("Share roll error:", error);
+    logger.error("Share roll error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -675,7 +786,7 @@ export const saveRoll = async (req, res) => {
       message: "Roll saved successfully",
     });
   } catch (error) {
-    console.error("Save roll error:", error);
+    logger.error("Save roll error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -717,7 +828,7 @@ export const unsaveRoll = async (req, res) => {
       message: "Roll unsaved successfully",
     });
   } catch (error) {
-    console.error("Unsave roll error:", error);
+    logger.error("Unsave roll error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",

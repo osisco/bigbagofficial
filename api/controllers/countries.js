@@ -80,7 +80,7 @@ const COUNTRIES = [
   { code: "IR", name: "Iran", flag: "🇮🇷" },
   { code: "IQ", name: "Iraq", flag: "🇮🇶" },
   { code: "IE", name: "Ireland", flag: "🇮🇪" },
-  { code: "IL", name: "Israel", flag: "🇮🇱" },
+
   { code: "IT", name: "Italy", flag: "🇮🇹" },
   { code: "JM", name: "Jamaica", flag: "🇯🇲" },
   { code: "JP", name: "Japan", flag: "🇯🇵" },
@@ -193,7 +193,7 @@ const COUNTRIES = [
   { code: "VN", name: "Vietnam", flag: "🇻🇳" },
   { code: "YE", name: "Yemen", flag: "🇾🇪" },
   { code: "ZM", name: "Zambia", flag: "🇿🇲" },
-  { code: "ZW", name: "Zimbabwe", flag: "🇿🇼" }
+  { code: "ZW", name: "Zimbabwe", flag: "🇿🇼" },
 ];
 
 export const getCountries = async (req, res) => {
@@ -201,13 +201,13 @@ export const getCountries = async (req, res) => {
     res.status(200).json({
       success: true,
       data: COUNTRIES,
-      message: "Countries retrieved successfully"
+      message: "Countries retrieved successfully",
     });
   } catch (error) {
     console.error("Get countries error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Server error" 
+      message: "Server error",
     });
   }
 };

@@ -184,7 +184,7 @@ export default function ManageOffersScreen() {
       <FlatList
         data={offers}
         renderItem={renderOfferItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id || `offer-${index}`}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />

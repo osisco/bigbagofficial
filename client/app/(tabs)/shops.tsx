@@ -1,25 +1,52 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet, TextInput, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  TextInput,
+  RefreshControl,
+  ActivityIndicator,
+  TouchableOpacity,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useColors, useCommonStyles, spacing, typography, borderRadius } from '../../styles/commonStyles';
+import {
+  useColors,
+  useCommonStyles,
+  spacing,
+  typography,
+  borderRadius,
+} from '../../styles/commonStyles';
 import { Shop } from '../../types';
 import ShopCard from '../../components/ShopCard';
 import { router } from 'expo-router';
 import { shopsApi, handleApiError } from '../../services/api';
+import { useCountry } from '../../hooks/useCountry';
+import { useAuth } from '../../hooks/useAuth';
+import { COUNTRIES } from '../../constants/countries';
+
+const ITEMS_PER_PAGE = 10;
 
 const ShopsScreen: React.FC = () => {
   const colors = useColors();
   const commonStyles = useCommonStyles();
+  const { selectedCountry } = useCountry();
+  const { user } = useAuth();
+
   const [shops, setShops] = useState<Shop[]>([]);
+  const [topSharedShops, setTopSharedShops] = useState<Shop[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const ITEMS_PER_PAGE = 10;
+
+  /* ----------------------------- STYLES ----------------------------- */
 
   const styles = StyleSheet.create({
     header: {
@@ -29,7 +56,6 @@ const ShopsScreen: React.FC = () => {
     title: {
       ...typography.h1,
       color: colors.text,
-      marginBottom: spacing.xs,
     },
     subtitle: {
       ...typography.body,
@@ -58,115 +84,173 @@ const ShopsScreen: React.FC = () => {
       paddingBottom: 100,
     },
     row: {
-      justifyContent: 'space-around',
-      paddingHorizontal: spacing.sm,
+      justifyContent: 'space-between',
     },
     shopCardWrapper: {
       flex: 1,
       marginHorizontal: spacing.xs,
     },
-    emptyState: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.xl,
-    },
-    emptyTitle: {
-      ...typography.h3,
-      color: colors.text,
-      marginTop: spacing.md,
-      marginBottom: spacing.sm,
-    },
-    emptySubtitle: {
-      ...typography.body,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      marginBottom: spacing.lg,
-    },
     loadingContainer: {
-      flex: 1,
-      justifyContent: 'center',
+      paddingVertical: spacing.xl,
       alignItems: 'center',
     },
     loadingText: {
+      marginTop: spacing.sm,
+      color: colors.textSecondary,
+    },
+    emptyState: {
+      alignItems: 'center',
+      paddingVertical: spacing.xl,
+    },
+    emptyText: {
       ...typography.body,
       color: colors.textSecondary,
       marginTop: spacing.md,
     },
-    errorContainer: {
-      flex: 1,
-      justifyContent: 'center',
+    sectionHeader: {
+      flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: spacing.lg,
-    },
-    errorText: {
-      ...typography.body,
-      color: colors.error,
-      textAlign: 'center',
-      marginTop: spacing.md,
-      marginBottom: spacing.lg,
-    },
-    retryButton: {
-      backgroundColor: colors.primary,
-      paddingHorizontal: spacing.lg,
       paddingVertical: spacing.md,
-      borderRadius: borderRadius.md,
     },
-    retryText: {
-      ...typography.button,
-      color: colors.white,
+    sectionTitle: {
+      ...typography.h3,
+      marginLeft: spacing.sm,
+      color: colors.text,
+    },
+    topSharedContainer: {
+      paddingBottom: spacing.md,
+      marginBottom: spacing.md,
+    },
+    topSharedList: {
+      paddingLeft: spacing.lg,
+      paddingRight: spacing.lg,
+    },
+    topSharedShopWrapper: {
+      width: 160,
+      marginRight: spacing.md,
     },
   });
 
-  const loadShops = useCallback(async (pageNum = 1, isRefresh = false) => {
-    try {
-      if (pageNum === 1) {
-        setError(null);
-        setIsLoading(true);
-      } else {
-        setIsLoadingMore(true);
+  /* ----------------------------- DATA LOADERS ----------------------------- */
+
+  const loadTopSharedShops = useCallback(async () => {
+    // If user is authenticated, backend will use their account country automatically
+    // Don't send country parameter - let backend handle it from user's account
+    if (!user) {
+      // For guests, use selectedCountry from localStorage
+      if (!selectedCountry) {
+        setTopSharedShops([]);
+        return;
       }
+      // Convert country code to country name for guest users
+      const country = COUNTRIES.find(c => c.code === selectedCountry);
+      const countryName = country?.name || selectedCountry;
       
-      console.log(`Loading shops page ${pageNum}...`);
-      
-      const response = await shopsApi.getAll({ page: pageNum, limit: ITEMS_PER_PAGE });
-      
-      if (response.success && response.data) {
-        const newShops = response.data;
-        
-        if (pageNum === 1 || isRefresh) {
-          setShops(newShops);
-        } else {
-          setShops(prev => [...prev, ...newShops]);
-        }
-        
-        setHasMore(newShops.length === ITEMS_PER_PAGE);
-        setPage(pageNum);
-        console.log(`Shops page ${pageNum} loaded:`, newShops.length);
-      } else {
-        console.error('Failed to load shops:', response.message);
-        setError(response.message || 'Failed to load shops');
+      try {
+        console.log('Loading top shared shops for guest, country:', countryName);
+        const res = await shopsApi.getTopSharedThisWeek(countryName);
+        handleTopSharedResponse(res);
+      } catch (err) {
+        console.error('Error loading top shared shops:', err);
       }
-    } catch (err) {
-      console.error('Error loading shops:', err);
-      const errorMessage = handleApiError(err);
-      setError(errorMessage);
-    } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
+      return;
     }
-  }, []);
+
+    // For authenticated users, don't send country - backend uses account country
+    try {
+      console.log('Loading top shared shops for authenticated user (account country:', user.country, ')');
+      const res = await shopsApi.getTopSharedThisWeek(); // No country parameter
+      handleTopSharedResponse(res);
+    } catch (err) {
+      console.error('Error loading top shared shops:', err);
+    }
+  }, [user, selectedCountry]);
+
+  const handleTopSharedResponse = (res: any) => {
+    console.log('Top shared API response:', res);
+
+    // Handle both response shapes: { success, data } or direct array
+    if (Array.isArray(res)) {
+      console.log('Setting top shared shops (array):', res.length);
+      setTopSharedShops(res);
+    } else if (res?.success && Array.isArray(res.data)) {
+      console.log('Setting top shared shops (success):', res.data.length);
+      setTopSharedShops(res.data);
+    } else if (res?.success && res.data === null) {
+      // Empty result is valid
+      console.log('No top shared shops found for this week');
+      setTopSharedShops([]);
+    } else {
+      console.warn('Unexpected top shared shops response format:', res);
+      setTopSharedShops([]);
+    }
+  };
+
+
+  const loadShops = useCallback(
+    async (pageNum = 1, isRefresh = false) => {
+      if (!selectedCountry) return;
+
+      try {
+        if (pageNum === 1) {
+          setIsInitialLoading(true);
+          setError(null);
+        } else {
+          setIsLoadingMore(true);
+        }
+
+        const res = await shopsApi.getAll({
+          page: pageNum,
+          limit: ITEMS_PER_PAGE,
+          country: selectedCountry,
+        });
+
+        if (res?.success && Array.isArray(res.data)) {
+          if (pageNum === 1 || isRefresh) {
+            setShops(res.data);
+          } else {
+            // Deduplicate by ID to prevent duplicate keys
+            setShops(prev => {
+              const existingIds = new Set(prev.map(s => s.id));
+              const newShops = res.data.filter(s => s.id && !existingIds.has(s.id));
+              return [...prev, ...newShops];
+            });
+          }
+          setHasMore(res.data.length === ITEMS_PER_PAGE);
+          setPage(pageNum);
+        } else {
+          setError(res?.message || 'Failed to load shops');
+        }
+      } catch (err) {
+        setError(handleApiError(err));
+      } finally {
+        setIsInitialLoading(false);
+        setIsLoadingMore(false);
+      }
+    },
+    [selectedCountry]
+  );
+
+  /* ----------------------------- EFFECTS ----------------------------- */
 
   useEffect(() => {
-    loadShops();
-  }, [loadShops]);
+    console.log("Selected country changed:", selectedCountry);
+    if (!selectedCountry) {
+      setTopSharedShops([]);
+      return;
+    }
+    loadShops(1, true);
+    loadTopSharedShops();
+  }, [selectedCountry, loadShops, loadTopSharedShops]);
+
+  /* ----------------------------- HANDLERS ----------------------------- */
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    setPage(1);
     setHasMore(true);
-    await loadShops(1, true);
+    setPage(1);
+    await Promise.all([loadShops(1, true), loadTopSharedShops()]);
     setIsRefreshing(false);
   };
 
@@ -176,77 +260,99 @@ const ShopsScreen: React.FC = () => {
     }
   };
 
-  const renderFooter = () => {
-    if (!isLoadingMore) return null;
+  const handleShopPress = (shop: Shop) => {
+    if (!shop.id) return;
+    router.push(`/shop/${shop.id}`);
+  };
+
+  /* ----------------------------- RENDER HELPERS ----------------------------- */
+
+  const filteredShops = shops.filter(shop =>
+    !searchQuery ||
+    shop.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    shop.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    
+  );
+
+  const renderTopSharedSection = () => {
+    // Always show the section header, but conditionally show content
     return (
-      <View style={{ paddingVertical: spacing.lg }}>
-        <ActivityIndicator size="small" color={colors.primary} />
+      <View style={styles.topSharedContainer}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="trending-up" size={20} color={colors.primary} />
+          <Text style={styles.sectionTitle}>Top Shared This Week</Text>
+        </View>
+
+        {topSharedShops.length > 0 ? (
+          <FlatList
+            data={topSharedShops}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={item => `top-${item.id || String(item)}`}
+            renderItem={({ item }) => (
+              <View style={styles.topSharedShopWrapper}>
+                <ShopCard
+                  shop={item}
+                  showCountries={false}
+                  onPress={() => handleShopPress(item)}
+                />
+              </View>
+            )}
+            contentContainerStyle={styles.topSharedList}
+            snapToInterval={160 + spacing.md}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            removeClippedSubviews={true}
+            initialNumToRender={3}
+            maxToRenderPerBatch={5}
+            windowSize={5}
+          />
+        ) : (
+          <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.md }}>
+            <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+              No top shared shops this week for your country
+            </Text>
+          </View>
+        )}
       </View>
     );
   };
 
-  const filteredShops = shops.filter(shop =>
-    !searchQuery.trim() ||
-    shop.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    shop.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  const renderFooter = () =>
+    isLoadingMore ? (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    ) : null;
+const renderListHeader = () => {
+  return (
+    <>
+      {renderTopSharedSection()}
+      <View style={{ paddingHorizontal: spacing.lg, paddingVertical: spacing.md }}>
+        <Text style={styles.sectionTitle}>All Shops</Text>
+      </View>
+    </>
   );
+};
 
-  const handleShopPress = (shop: Shop) => {
-    console.log('Shop pressed:', shop.name);
-    router.push(`/shop/${shop.id}`);
-  };
-
-  const renderShop = ({ item }: { item: Shop }) => (
-    <View style={styles.shopCardWrapper}>
-      <ShopCard shop={item} onPress={() => handleShopPress(item)} />
-    </View>
-  );
-
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Ionicons name="storefront-outline" size={64} color={colors.textSecondary} />
-      <Text style={styles.emptyTitle}>No Shops Found</Text>
-      <Text style={styles.emptySubtitle}>
-        {searchQuery 
-          ? `No shops match "${searchQuery}"`
-          : 'No shops available at the moment'
-        }
-      </Text>
-    </View>
-  );
-
-  if (isLoading) {
-    return (
-      <SafeAreaView style={commonStyles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Shops</Text>
-          <Text style={styles.subtitle}>Discover amazing stores</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading shops...</Text>
-        </View>
-      </SafeAreaView>
+  const renderEmpty = () =>
+    isInitialLoading ? (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading shops...</Text>
+      </View>
+    ) : (
+      <View style={styles.emptyState}>
+        <Ionicons
+          name="storefront-outline"
+          size={48}
+          color={colors.textSecondary}
+        />
+        <Text style={styles.emptyText}>No shops found</Text>
+      </View>
     );
-  }
 
-  if (error) {
-    return (
-      <SafeAreaView style={commonStyles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Shops</Text>
-          <Text style={styles.subtitle}>Discover amazing stores</Text>
-        </View>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color={colors.error} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadShops}>
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  /* ----------------------------- RENDER ----------------------------- */
 
   return (
     <SafeAreaView style={commonStyles.container}>
@@ -264,41 +370,37 @@ const ShopsScreen: React.FC = () => {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons
-              name="close-circle"
-              size={20}
-              color={colors.textSecondary}
-            />
-          </TouchableOpacity>
-        )}
       </View>
 
       <FlatList
-        data={filteredShops}
-        renderItem={renderShop}
-        keyExtractor={(item, index) => item.id || `shop-${index}`}
-        numColumns={2}
-        columnWrapperStyle={filteredShops.length > 1 ? styles.row : undefined}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl 
-            refreshing={isRefreshing} 
-            onRefresh={handleRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.1}
-        ListFooterComponent={renderFooter}
-        ListEmptyComponent={renderEmptyState}
-      />
+  data={filteredShops}
+  renderItem={({ item }) => (
+    <View style={styles.shopCardWrapper}>
+      <ShopCard shop={item} onPress={() => handleShopPress(item)} />
+    </View>
+  )}
+            keyExtractor={(item, index) => item.id || `shop-${index}`}
+  numColumns={2}
+  columnWrapperStyle={filteredShops.length > 1 ? styles.row : undefined}
+  contentContainerStyle={styles.listContent}
+  ListHeaderComponent={renderListHeader}  // <-- updated here
+  ListFooterComponent={renderFooter}
+  ListEmptyComponent={renderEmpty}
+  refreshControl={
+    <RefreshControl
+      refreshing={isRefreshing}
+      onRefresh={handleRefresh}
+      tintColor={colors.primary}
+      colors={[colors.primary]}
+    />
+  }
+  onEndReached={handleLoadMore}
+  onEndReachedThreshold={0.2}
+  showsVerticalScrollIndicator={false}
+/>
+
     </SafeAreaView>
   );
 };
-
 
 export default ShopsScreen;

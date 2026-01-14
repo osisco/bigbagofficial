@@ -11,6 +11,7 @@ export function useCountry() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    
     const loadCountries = async () => {
       try {
         console.log('Loading countries from API...');

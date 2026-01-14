@@ -3,7 +3,12 @@ import User from "../models/User.js";
 import Shop from "../models/Shop.js";
 import { v2 as cloudinary } from "cloudinary";
 import { API_CONFIG } from "../config/constants.js";
-import fs from "fs";
+import {
+  handleCloudinaryUpload,
+  getUserFavoriteShopIds,
+  transformOffer,
+  sortAndLimitItems,
+} from "../utils/helpers.js";
 
 export const createOffer = async (req, res) => {
   try {
@@ -47,27 +52,15 @@ export const createOffer = async (req, res) => {
 
     if (req.file) {
       try {
-        console.log("Uploading image to Cloudinary:", req.file.path);
-        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
-          resource_type: "image",
-          folder: API_CONFIG.FOLDERS.OFFERS,
-          quality: "auto",
-        });
-        console.log("Cloudinary upload successful:", uploadResult.secure_url);
-        imageUrl = uploadResult.secure_url;
-
-        // Clean up local file
-        if (fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-          console.log("Local file cleaned up:", req.file.path);
-        }
+        imageUrl = await handleCloudinaryUpload(
+          req.file,
+          API_CONFIG.FOLDERS.OFFERS,
+          cloudinary,
+        );
       } catch (uploadError) {
-        console.error("Cloudinary upload error:", uploadError);
-        console.error("File details:", req.file);
         return res.status(500).json({
           success: false,
-          message:
-            "Failed to upload image to Cloudinary: " + uploadError.message,
+          message: uploadError.message,
         });
       }
     }
@@ -110,67 +103,17 @@ export const getOffers = async (req, res) => {
       .populate("shop", "name logo country language")
       .limit(API_CONFIG.MAX_LIMIT);
 
-    let favoriteShopIds = [];
-    if (userId) {
-      const User = (await import("../models/User.js")).default;
-      const user = await User.findById(userId).select("favorites");
-      favoriteShopIds = user?.favorites?.map((id) => id.toString()) || [];
-    }
+    const favoriteShopIds = await getUserFavoriteShopIds(userId);
 
-    const transformedOffers = offers
-      .map((offer) => {
-        const isFavorite = favoriteShopIds.includes(offer.shop._id.toString());
-        const matchesCountry = country && offer.shop.country === country;
-        const matchesLanguage = language && offer.shop.language === language;
+    const transformedOffers = offers.map((offer) =>
+      transformOffer(offer, favoriteShopIds, country, language),
+    );
 
-        return {
-          id: offer._id,
-          shopId: offer.shop._id,
-          shopName: offer.shop.name,
-          title: offer.title,
-          description: offer.description,
-          discount: offer.discount,
-          originalPrice: offer.originalPrice,
-          salePrice: offer.salePrice,
-          image: offer.image,
-          expiryDate: offer.expiryDate,
-          isLimited: offer.isLimited,
-          sortPriority:
-            isFavorite && matchesCountry && matchesLanguage
-              ? 1
-              : isFavorite && matchesCountry
-                ? 2
-                : isFavorite && matchesLanguage
-                  ? 3
-                  : isFavorite
-                    ? 4
-                    : matchesCountry && matchesLanguage
-                      ? 5
-                      : matchesCountry
-                        ? 6
-                        : matchesLanguage
-                          ? 7
-                          : 8,
-          createdAt: offer.createdAt,
-        };
-      })
-      .sort((a, b) => {
-        if (a.sortPriority !== b.sortPriority) {
-          return a.sortPriority - b.sortPriority;
-        }
-        return (
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-      })
-      .slice(0, API_CONFIG.DEFAULT_LIMIT)
-      .map((offer) => {
-        const { sortPriority, createdAt, ...offerWithoutPriority } = offer;
-        return offerWithoutPriority;
-      });
+    const sortedAndLimitedOffers = sortAndLimitItems(transformedOffers);
 
     res.status(200).json({
       success: true,
-      data: transformedOffers,
+      data: sortedAndLimitedOffers,
       message: "Offers retrieved successfully",
     });
   } catch (error) {
@@ -282,31 +225,15 @@ export const updateOffer = async (req, res) => {
 
     if (req.file) {
       try {
-        console.log("Uploading offer image to Cloudinary:", req.file.path);
-        console.log("File details:", {
-          name: req.file.filename,
-          size: req.file.size,
-          mimetype: req.file.mimetype,
-        });
-        const uploadResult = await cloudinary.uploader.upload(req.file.path, {
-          resource_type: "image",
-          folder: API_CONFIG.FOLDERS.OFFERS,
-          quality: "auto",
-        });
-        console.log("Cloudinary upload successful:", uploadResult.secure_url);
-        updateData.image = uploadResult.secure_url;
-
-        if (fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-          console.log("Local file cleaned up:", req.file.path);
-        }
+        updateData.image = await handleCloudinaryUpload(
+          req.file,
+          API_CONFIG.FOLDERS.OFFERS,
+          cloudinary,
+        );
       } catch (uploadError) {
-        console.error("Cloudinary upload error:", uploadError);
-        console.error("File details:", req.file);
         return res.status(500).json({
           success: false,
-          message:
-            "Failed to upload image to Cloudinary: " + uploadError.message,
+          message: uploadError.message,
         });
       }
     }
